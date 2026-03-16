@@ -2496,6 +2496,25 @@ my $create_migrate_worker = sub {
         my $preconditions = PVE::API2::Qemu->migrate_vm_precondition(
             { node => $nodename, vmid => $vmid, target => $target });
         my $invalidConditions = '';
+
+        if ($online) {
+            my $vpp_bridges = PVE::API2::Network::get_vpp_bridges();
+            if (keys %$vpp_bridges) {
+                my $conf = PVE::QemuConfig->load_config($vmid);
+                my @vpp_nics;
+                for my $opt (sort keys %$conf) {
+                    next if $opt !~ m/^net\d+$/;
+                    my $net = PVE::QemuServer::Network::parse_net($conf->{$opt});
+                    next if !$net || !$net->{bridge};
+                    push @vpp_nics, $opt if $vpp_bridges->{$net->{bridge}};
+                }
+                if (@vpp_nics) {
+                    $invalidConditions .= "\n  Has VPP vhost-user NICs: ";
+                    $invalidConditions .= join(', ', @vpp_nics);
+                }
+            }
+        }
+
         if ($online && !$with_local_disks && scalar @{ $preconditions->{local_disks} }) {
             $invalidConditions .= "\n  Has local disks: ";
             $invalidConditions .=

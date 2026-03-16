@@ -463,6 +463,54 @@ Ext.define('PVE.window.Migrate', {
                 }
             }
 
+            if (vm.get('running')) {
+                try {
+                    let { result: netResult } = await Proxmox.Async.api2({
+                        url: `/nodes/${vm.get('nodename')}/network?type=any_bridge`,
+                        method: 'GET',
+                    });
+                    let vppBridges = new Set();
+                    for (const iface of netResult.data || []) {
+                        if (iface.type === 'VPPBridge') {
+                            vppBridges.add(iface.iface);
+                        }
+                    }
+                    if (vppBridges.size > 0) {
+                        let vmConfig = {};
+                        try {
+                            let { result: cfgResult } = await Proxmox.Async.api2({
+                                url: `/nodes/${vm.get('nodename')}/qemu/${vm.get('vmid')}/config`,
+                                method: 'GET',
+                            });
+                            vmConfig = cfgResult.data || {};
+                        } catch (_err) { /* ignore */ }
+
+                        let vppNics = [];
+                        for (const [key, value] of Object.entries(vmConfig)) {
+                            if (!key.match(/^net\d+$/)) {
+                                continue;
+                            }
+                            let net = PVE.Parser.parseQemuNetwork(key, value);
+                            if (net && net.bridge && vppBridges.has(net.bridge)) {
+                                vppNics.push(key);
+                            }
+                        }
+                        if (vppNics.length > 0) {
+                            migration.possible = false;
+                            migration.preconditions.push({
+                                text: Ext.String.format(
+                                    gettext('Cannot live-migrate VM with VPP vhost-user NICs: {0}. Use offline migration or HA (stop/start).'),
+                                    vppNics.join(', '),
+                                ),
+                                severity: 'error',
+                            });
+                        }
+                    }
+                } catch (_err) {
+                    // VPP bridge check is best-effort
+                }
+            }
+
             vm.set('migration', migration);
         },
         checkLxcPreconditions: async function (resetMigrationPossible) {

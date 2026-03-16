@@ -193,6 +193,7 @@ Ext.define('PVE.node.Config', {
                     showAltNames: true,
                     groups: ['services'],
                     nodename: nodename,
+                    types: ['bridge', 'bond', 'vlan', 'ovs', 'vpp'],
                     editOptions: {
                         enableBridgeVlanIds: true,
                     },

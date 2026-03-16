@@ -6,6 +6,15 @@ Ext.define('PVE.lxc.NetworkInputPanel', {
 
     onlineHelp: 'pct_container_network',
 
+    viewModel: {
+        data: {
+            bridgeType: '',
+        },
+        formulas: {
+            isVPPBridge: (get) => get('bridgeType') === 'VPPBridge',
+        },
+    },
+
     setNodename: function (nodename) {
         let me = this;
 
@@ -116,6 +125,20 @@ Ext.define('PVE.lxc.NetworkInputPanel', {
                 fieldLabel: gettext('Bridge'),
                 value: cdata.bridge,
                 allowBlank: false,
+                listeners: {
+                    change: function (field, value) {
+                        let store = field.getStore();
+                        let rec = store.findRecord('iface', value, 0, false, false, true);
+                        let type = rec ? rec.data.type : '';
+                        me.getViewModel().set('bridgeType', type);
+                        if (type === 'VPPBridge') {
+                            let fw = me.down('field[name=firewall]');
+                            if (fw) {
+                                fw.setValue(false);
+                            }
+                        }
+                    },
+                },
             },
             {
                 xtype: 'pveVlanField',
@@ -127,6 +150,17 @@ Ext.define('PVE.lxc.NetworkInputPanel', {
                 fieldLabel: gettext('Firewall'),
                 name: 'firewall',
                 value: cdata.firewall,
+                bind: {
+                    disabled: '{isVPPBridge}',
+                },
+            },
+            {
+                xtype: 'displayfield',
+                userCls: 'pmx-hint',
+                value: gettext('Kernel firewall is not available with VPP bridges'),
+                bind: {
+                    hidden: '{!isVPPBridge}',
+                },
             },
         ];
 

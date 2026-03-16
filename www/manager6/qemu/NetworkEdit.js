@@ -38,10 +38,12 @@ Ext.define('PVE.qemu.NetworkInputPanel', {
         data: {
             networkModel: undefined,
             mtu: '',
+            bridgeType: '',
         },
         formulas: {
             isVirtio: (get) => get('networkModel') === 'virtio',
             showMtuHint: (get) => get('mtu') === 1,
+            isVPPBridge: (get) => get('bridgeType') === 'VPPBridge',
         },
     },
 
@@ -82,6 +84,20 @@ Ext.define('PVE.qemu.NetworkInputPanel', {
             nodename: me.nodename,
             autoSelect: true,
             allowBlank: false,
+            listeners: {
+                change: function (field, value) {
+                    let store = field.getStore();
+                    let rec = store.findRecord('iface', value, 0, false, false, true);
+                    let type = rec ? rec.data.type : '';
+                    me.getViewModel().set('bridgeType', type);
+                    if (type === 'VPPBridge') {
+                        let fw = me.down('field[name=firewall]');
+                        if (fw) {
+                            fw.setValue(false);
+                        }
+                    }
+                },
+            },
         });
 
         me.column1 = [
@@ -96,6 +112,17 @@ Ext.define('PVE.qemu.NetworkInputPanel', {
                 fieldLabel: gettext('Firewall'),
                 name: 'firewall',
                 checked: me.insideWizard || me.isCreate,
+                bind: {
+                    disabled: '{isVPPBridge}',
+                },
+            },
+            {
+                xtype: 'displayfield',
+                userCls: 'pmx-hint',
+                value: gettext('Kernel firewall is not available with VPP bridges'),
+                bind: {
+                    hidden: '{!isVPPBridge}',
+                },
             },
         ];
 

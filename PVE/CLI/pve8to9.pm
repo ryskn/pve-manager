@@ -11,6 +11,7 @@ use PVE::API2::LXC;
 use PVE::API2::Qemu;
 use PVE::API2::Certificates;
 use PVE::API2::Cluster::Ceph;
+use PVE::API2::Network;
 
 use PVE::AccessControl;
 use PVE::Ceph::Tools;
@@ -1909,6 +1910,52 @@ sub check_bridge_mtu {
     }
 }
 
+sub check_vpp_firewall_conflicts {
+    log_info("Checking for VMs with firewall enabled on VPP bridges...");
+
+    my $vpp_bridges = eval { PVE::API2::Network::get_vpp_bridges() } // {};
+    if (!keys %$vpp_bridges) {
+        log_skip("No VPP bridges detected.");
+        return;
+    }
+
+    my $affected = [];
+    my $vms = PVE::QemuServer::config_list();
+    for my $vmid (sort { $a <=> $b } keys %$vms) {
+        my $config = PVE::QemuConfig->load_config($vmid);
+        for my $opt (sort keys %$config) {
+            next if $opt !~ m/^net\d+$/;
+            my $net = PVE::QemuServer::Network::parse_net($config->{$opt});
+            next if !$net || !$net->{bridge};
+            if ($vpp_bridges->{$net->{bridge}} && $net->{firewall}) {
+                push @$affected, "VM $vmid ($opt on $net->{bridge})";
+            }
+        }
+    }
+
+    my $cts = PVE::LXC::config_list();
+    for my $vmid (sort { $a <=> $b } keys %$cts) {
+        my $conf = PVE::LXC::Config->load_config($vmid);
+        for my $opt (sort keys %$conf) {
+            next if $opt !~ m/^net\d+$/;
+            my $net = PVE::LXC::Config->parse_lxc_network($conf->{$opt});
+            next if !$net || !$net->{bridge};
+            if ($vpp_bridges->{$net->{bridge}} && $net->{firewall}) {
+                push @$affected, "CT $vmid ($opt on $net->{bridge})";
+            }
+        }
+    }
+
+    if (@$affected) {
+        log_warn(
+            "The following guests have firewall enabled on VPP bridges (kernel firewall not available):\n"
+                . "    "
+                . join(", ", @$affected));
+    } else {
+        log_pass("No firewall conflicts with VPP bridges found.");
+    }
+}
+
 sub check_rrd_migration {
     if (-e "/var/lib/rrdcached/db/pve-node-9.0") {
         log_info("Check post RRD metrics data format update situation...");
@@ -2016,6 +2063,7 @@ sub check_virtual_guests {
     check_lxcfs_fuse_version();
 
     check_bridge_mtu();
+    check_vpp_firewall_conflicts();
 
     my $affected_guests_long_desc = [];
     my $affected_cts_cgroup_keys = [];
